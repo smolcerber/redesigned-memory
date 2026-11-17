@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { Activity, Team, User, Workout } from '../models/index.js';
 
 export async function listActivities() {
@@ -5,7 +6,38 @@ export async function listActivities() {
 }
 
 export async function createActivity(_input: unknown) {
-  throw Object.assign(new Error('Activity validation is not implemented yet'), { status: 501 });
+  if (typeof _input !== 'object' || _input === null || Array.isArray(_input)) {
+    throw Object.assign(new Error('Activity input must be an object'), { status: 400 });
+  }
+  const input = _input as Record<string, unknown>;
+  const { userId, teamId, type, minutes } = input;
+  if (
+    typeof userId !== 'string' ||
+    !Types.ObjectId.isValid(userId) ||
+    typeof teamId !== 'string' ||
+    !Types.ObjectId.isValid(teamId) ||
+    typeof type !== 'string' ||
+    type.trim().length === 0 ||
+    typeof minutes !== 'number' ||
+    !Number.isFinite(minutes) ||
+    minutes <= 0
+  ) {
+    throw Object.assign(new Error('Invalid activity input'), { status: 400 });
+  }
+
+  const [user, team] = await Promise.all([User.findById(userId), Team.findById(teamId)]);
+  if (!user || !team) {
+    throw Object.assign(new Error('Activity user or team was not found'), { status: 404 });
+  }
+
+  return Activity.create({
+    user: user._id,
+    team: team._id,
+    type,
+    minutes,
+    points: minutes,
+    occurredAt: new Date(),
+  });
 }
 
 export async function listTeams() {
@@ -13,7 +45,30 @@ export async function listTeams() {
 }
 
 export async function createTeam(_input: unknown) {
-  throw Object.assign(new Error('Team validation is not implemented yet'), { status: 501 });
+  if (typeof _input !== 'object' || _input === null || Array.isArray(_input)) {
+    throw Object.assign(new Error('Team input must be an object'), { status: 400 });
+  }
+  const input = _input as Record<string, unknown>;
+  const { name, mascot } = input;
+  const members = input.members ?? [];
+  if (
+    typeof name !== 'string' ||
+    name.trim().length === 0 ||
+    typeof mascot !== 'string' ||
+    mascot.trim().length === 0 ||
+    !Array.isArray(members) ||
+    !members.every((member): member is string => typeof member === 'string' && Types.ObjectId.isValid(member))
+  ) {
+    throw Object.assign(new Error('Invalid team input'), { status: 400 });
+  }
+
+  const uniqueMemberIds = new Set(members);
+  const existingMembers = await User.find({ _id: { $in: [...uniqueMemberIds] } }).select('_id').lean();
+  if (existingMembers.length !== uniqueMemberIds.size) {
+    throw Object.assign(new Error('One or more team members were not found'), { status: 404 });
+  }
+
+  return Team.create({ name, mascot, members: [...uniqueMemberIds] });
 }
 
 export async function getLeaderboard() {
